@@ -3,12 +3,12 @@ pipeline {
     environment {
         PATH=sh(script:"echo $PATH:/usr/local/bin", returnStdout:true).trim()
         APP_NAME="petclinic"
-        APP_STACK_NAME="ozimain-${APP_NAME}-app-${BUILD_NUMBER}"
-        APP_REPO_NAME="ozimain-repo/${APP_NAME}-app-dev"
+        APP_STACK_NAME="Callet-${APP_NAME}-app-${BUILD_NUMBER}"
+        APP_REPO_NAME="claruswayset-repo/${APP_NAME}-app-dev"
         AWS_ACCOUNT_ID=sh(script:'export PATH="$PATH:/usr/local/bin" && aws sts get-caller-identity --query Account --output text', returnStdout:true).trim()
         AWS_REGION="us-east-1"
         ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        CFN_KEYPAIR="ozimain-${APP_NAME}-dev-${BUILD_NUMBER}.key"
+        CFN_KEYPAIR="call-${APP_NAME}-dev-${BUILD_NUMBER}.key"
         CFN_TEMPLATE="./infrastructure/dev-docker-swarm-infrastructure-cfn-template.yml"
         ANSIBLE_PRIVATE_KEY_FILE="${WORKSPACE}/${CFN_KEYPAIR}"
         ANSIBLE_HOST_KEY_CHECKING="False"
@@ -81,31 +81,11 @@ pipeline {
             steps {
                 echo 'Creating QA Automation Infrastructure for Dev Environment with Cloudfomation'
                 sh "aws cloudformation create-stack --region ${AWS_REGION} --stack-name ${APP_STACK_NAME} --capabilities CAPABILITY_IAM --template-body file://${CFN_TEMPLATE} --parameters ParameterKey=KeyPairName,ParameterValue=${CFN_KEYPAIR}"
-
+                sh "aws cloudformation wait stack-create-complete --stack-name ${APP_STACK_NAME}" 
                 script {
-                    while(true) {
-                        echo "Docker Grand Master is not UP and running yet. Will try to reach again after 10 seconds..."
-                        sleep(10)
-
-                        ip = sh(script:"aws ec2 describe-instances --region ${AWS_REGION} --filters Name=tag-value,Values=grand-master Name=tag-value,Values=${APP_STACK_NAME} --query Reservations[*].Instances[*].[PublicIpAddress] --output text", returnStdout:true).trim()
-
-                        if (ip.length() >= 7) {
-                            echo "Docker Grand Master Public Ip Address Found: $ip"
-                            env.GRAND_MASTER_PUBLIC_IP = "$ip"
-                            break
-                        }
-                    }
-                    while(true) {
-                        try{
-                            sh "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i ${WORKSPACE}/${CFN_KEYPAIR} ec2-user@${GRAND_MASTER_PUBLIC_IP} hostname"
-                            echo "Docker Grand Master is reachable with SSH."
-                            break
-                        }
-                        catch(Exception){
-                            echo "Could not connect to Docker Grand Master with SSH, I will try again in 10 seconds"
-                            sleep(10)
-                        }
-                    }
+                    echo "Docker Grand Master is not UP and running yet."
+                    env.id = sh(script: 'aws ec2 describe-instances --filters Name=tag-value,Values=grand-master Name=tag-value,Values=${APP_STACK_NAME} Name=instance-state-name,Values=running --query Reservations[*].Instances[*].[InstanceId] --output text',  returnStdout:true).trim()
+                    sh 'aws ec2 wait instance-status-ok --instance-ids $id'
                 }
             }
         }
@@ -138,7 +118,7 @@ pipeline {
             steps {
                 echo "Check if the ${APP_NAME} app is ready or not"
                 script {
-
+                    env.GRAND_MASTER_PUBLIC_IP = sh(script:"aws ec2 describe-instances --region ${AWS_REGION} --filters Name=tag-value,Values=grand-master Name=tag-value,Values=${APP_STACK_NAME} --query Reservations[*].Instances[*].[PublicIpAddress] --output text", returnStdout:true).trim()
                     while(true) {
                         try{
                             sh "curl -s ${GRAND_MASTER_PUBLIC_IP}:8080"
