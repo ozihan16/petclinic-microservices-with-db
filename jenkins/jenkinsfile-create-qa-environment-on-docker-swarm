@@ -15,12 +15,13 @@ pipeline {
             steps {
                 echo 'Creating Infrastructure for QA Environment with Cloudfomation'
                 sh "aws cloudformation create-stack --region ${AWS_REGION} --stack-name ${APP_STACK_NAME} --capabilities CAPABILITY_IAM --template-body file://${CFN_TEMPLATE} --parameters ParameterKey=KeyPairName,ParameterValue=${CFN_KEYPAIR}"
-                sh "aws cloudformation wait stack-create-complete --stack-name ${APP_STACK_NAME}"
+                sh "aws cloudformation wait stack-create-complete --stack-name ${APP_STACK_NAME}" 
                 script {
                     echo "Docker Grand Master is not UP and running yet."
                     env.id = sh(script: 'aws ec2 describe-instances --filters Name=tag-value,Values=grand-master Name=tag-value,Values=${APP_STACK_NAME} Name=instance-state-name,Values=running --query Reservations[*].Instances[*].[InstanceId] --output text',  returnStdout:true).trim()
                     sh 'aws ec2 wait instance-status-ok --instance-ids $id'
                 }
+                
             }
         }
         stage('Create Docker Swarm for QA Environment') {
